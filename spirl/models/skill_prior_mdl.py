@@ -135,7 +135,7 @@ class SkillPriorMdl(BaseModel, ProbabilisticModel):
         with torch.no_grad():
             latent_action, mu, std = self.idm(pair)
         
-        return MultivariateGaussian(mu=mu, log_sigma=std), curr_token_embeddings
+        return MultivariateGaussian(mu=mu, log_sigma=torch.log(std)), curr_token_embeddings
         
     def forward(self, inputs, use_learned_prior=False):
         """Forward pass of the SPIRL model.
