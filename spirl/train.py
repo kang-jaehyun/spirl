@@ -23,8 +23,8 @@ from spirl.components.trainer_base import BaseTrainer
 from spirl.utils.wandb import WandBLogger
 from spirl.components.params import get_args
 
-WANDB_PROJECT_NAME = 'your_project_name'
-WANDB_ENTITY_NAME = 'your_entity_name'
+WANDB_PROJECT_NAME = 'SPiRL'
+WANDB_ENTITY_NAME = 'jaehyunkang'
 
 
 class ModelTrainer(BaseTrainer):
@@ -66,7 +66,7 @@ class ModelTrainer(BaseTrainer):
                                             self._hp.top_comp_metric, tb_logger=self.logger_test)
         
         # load model params from checkpoint
-        self.global_step, start_epoch = 0, 0
+        self.global_step, start_epoch = 1, 0
         if args.resume or conf.ckpt_path is not None:
             start_epoch = self.resume(args.resume, conf.ckpt_path)
 

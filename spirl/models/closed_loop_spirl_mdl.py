@@ -8,6 +8,8 @@ from spirl.modules.subnetworks import Predictor, BaseProcessingLSTM, Encoder
 from spirl.modules.variational_inference import MultivariateGaussian
 from spirl.components.checkpointer import load_by_key, freeze_modules
 
+from action_diffusion.dynamics.idm import IDM
+from transformers import AutoTokenizer, PretrainedConfig, Dinov2Model, AutoImageProcessor, CLIPTextModel
 
 class ClSPiRLMdl(SkillPriorMdl):
     """SPiRL model with closed-loop low-level skill decoder."""
@@ -21,6 +23,25 @@ class ClSPiRLMdl(SkillPriorMdl):
                                  mid_size=self._hp.nz_mid_prior)
         self.p = self._build_prior_ensemble()
         self.log_sigma = get_constant_parameter(0., learnable=False)
+        self.visual_encoder = Dinov2Model.from_pretrained("facebook/dinov2-small")
+        
+        self.idm = IDM(
+            num_layers=1,
+            num_heads=8,
+            seq_len=256,
+            channel=self.visual_encoder.config.hidden_size,
+            out_dim=64,
+            d_model=256,
+        )
+        self.idm.load_state_dict(torch.load("ckpt/kitchen_finetune_pix2pix_normaldist/idm.pth"))
+        
+        # freeze visual encoder
+        for param in self.visual_encoder.parameters():
+            param.requires_grad = False
+        
+        # freeze IDM
+        for param in self.idm.parameters():
+            param.requires_grad = False
 
     def decode(self, z, cond_inputs, steps, inputs=None):
         assert inputs is not None       # need additional state sequence input for full decode

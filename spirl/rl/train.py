@@ -15,8 +15,8 @@ from spirl.rl.utils.rollout_utils import RolloutSaver
 from spirl.rl.components.sampler import Sampler
 from spirl.rl.components.replay_buffer import RolloutStorage
 
-WANDB_PROJECT_NAME = 'your_project_name'
-WANDB_ENTITY_NAME = 'your_entity_name'
+WANDB_PROJECT_NAME = 'SPiRL'
+WANDB_ENTITY_NAME = 'jaehyunkang'
 
 
 class RLTrainer:

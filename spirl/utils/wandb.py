@@ -48,7 +48,7 @@ class WandBLogger:
             name = phase + '/' + name
         if isinstance(array, torch.Tensor):
             array = array.cpu().detach().numpy()
-        wandb.log({name: wandb.Histogram(array)}, step=step)
+        wandb.log({name: wandb.Histogram(array)}, step=step, commit=False)
 
     def log_videos(self, vids, name, step=None, fps=20):
         """Logs videos to WandB in mp4 format.
@@ -57,7 +57,7 @@ class WandBLogger:
         assert isinstance(vids[0], np.ndarray)
         if vids[0].max() <= 1.0: vids = [np.asarray(vid * 255.0, dtype=np.uint8) for vid in vids]
         log_dict = {name: [wandb.Video(vid, fps=fps, format="mp4") for vid in vids]}
-        wandb.log(log_dict) if step is None else wandb.log(log_dict, step=step)
+        wandb.log(log_dict) if step is None else wandb.log(log_dict, step=step, commit=False)
 
     def log_gif(self, v, k, step=None, phase='', fps=20):
         if phase:
@@ -73,21 +73,21 @@ class WandBLogger:
             name = phase + '/' + name
         if len(images.shape) == 4:
             for img in images:
-                wandb.log({name: [wandb.Image(img)]})
+                wandb.log({name: [wandb.Image(img)]}, commit=False)
         else:
-            wandb.log({name: [wandb.Image(images)]})
+            wandb.log({name: [wandb.Image(images)]}, commit=False)
 
     def log_graph(self, v, name, step=None, phase=''):
         img = plot_graph(v)
         if phase:
             name = phase + '/' + name
-        wandb.log({name: [wandb.Image(img)]})
+        wandb.log({name: [wandb.Image(img)]}, commit=False)
 
     def log_plot(self, fig, name, step=None):
         """Logs matplotlib graph to WandB.
         fig is a matplotlib figure handle."""
         img = wandb.Image(fig)
-        wandb.log({name: img}) if step is None else wandb.log({name: img}, step=step)
+        wandb.log({name: img}) if step is None else wandb.log({name: img}, step=step, commit=False)
 
     @property
     def n_logged_samples(self):

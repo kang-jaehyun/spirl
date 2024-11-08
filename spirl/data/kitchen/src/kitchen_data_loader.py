@@ -5,6 +5,8 @@ import itertools
 
 from spirl.components.data_loader import Dataset
 from spirl.utils.general_utils import AttrDict
+from transformers import AutoTokenizer, PretrainedConfig, Dinov2Model, AutoImageProcessor, CLIPTextModel
+from PIL import Image
 
 
 class D4RLSequenceSplitDataset(Dataset):
@@ -23,6 +25,8 @@ class D4RLSequenceSplitDataset(Dataset):
 
         env = gym.make(self.spec.env_name)
         self.dataset = env.get_dataset()
+        self.visual_processor = AutoImageProcessor.from_pretrained("facebook/dinov2-small")
+
 
         # split dataset into sequences
         seq_end_idxs = np.where(self.dataset['terminals'])[0]
@@ -35,6 +39,22 @@ class D4RLSequenceSplitDataset(Dataset):
                 actions=self.dataset['actions'][start:end_idx+1],
             ))
             start = end_idx+1
+
+            
+        # rgb
+        self.image_dir = "data"
+        # start = 0
+        # for i, end_idx in enumerate(seq_end_idxs):
+        #     if end_idx+1 - start < self.subseq_len: continue    # skip too short demos
+        #     frames = []
+        #     for idx in range(start, end_idx+1):
+        #         env.set_state(self.dataset['observations'][idx, :30], np.zeros(29))
+        #         img = env.render(mode='rgb_array')
+        #         frames.append(img)
+        #     frames = np.stack(frames)
+        #     print("Start: {}, End: {}, Frames: {}".format(start, end_idx, frames.shape[0]))
+        #     # np.save(f'{image_dir}/{str(i).zfill(4)}.npy', frames)
+        #     start = end_idx+1
 
         # 0-pad sequences for skill-conditioned training
         if 'pad_n_steps' in self.spec and self.spec.pad_n_steps > 0:
@@ -67,9 +87,21 @@ class D4RLSequenceSplitDataset(Dataset):
 
     def __getitem__(self, index):
         # sample start index in data range
-        seq = self._sample_seq()
+        seq_idx = self._sample_seq()
+        seq = self.seqs[seq_idx]
         start_idx = np.random.randint(0, seq.states.shape[0] - self.subseq_len - 1)
+        frames = np.load(f'{self.image_dir}/{str(seq_idx).zfill(4)}.npy')
+        
+        prev_image = frames[start_idx]
+        next_image = frames[start_idx+self.subseq_len]
+        
+        curr_features = np.stack(self.visual_processor(prev_image)['pixel_values'])
+        next_features = np.stack(self.visual_processor(next_image)['pixel_values'])
+        
+        
         output = AttrDict(
+            curr_features=curr_features,
+            next_features=next_features,
             states=seq.states[start_idx:start_idx+self.subseq_len],
             actions=seq.actions[start_idx:start_idx+self.subseq_len-1],
             pad_mask=np.ones((self.subseq_len,)),
@@ -79,7 +111,8 @@ class D4RLSequenceSplitDataset(Dataset):
         return output
 
     def _sample_seq(self):
-        return np.random.choice(self.seqs[self.start:self.end])
+        random_idx = np.random.randint(self.start, self.end)
+        return random_idx
 
     def __len__(self):
         if self.dataset_size != -1:

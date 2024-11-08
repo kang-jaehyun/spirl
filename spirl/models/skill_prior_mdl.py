@@ -24,6 +24,7 @@ from spirl.modules.layers import LayerBuilderParams
 from spirl.modules.mdn import MDN, GMM
 from spirl.modules.flow_models import ConditionedFlowModel
 
+from PIL import Image
 
 class SkillPriorMdl(BaseModel, ProbabilisticModel):
     """Skill embedding + prior model for SPIRL algorithm."""
@@ -64,7 +65,7 @@ class SkillPriorMdl(BaseModel, ProbabilisticModel):
             'state_dim': 1,             # dimensionality of the state space
             'action_dim': 1,            # dimensionality of the action space
             'nz_enc': 32,               # number of dimensions in encoder-latent space
-            'nz_vae': 10,               # number of dimensions in vae-latent space
+            'nz_vae': 64,               # number of dimensions in vae-latent space
             'nz_mid': 32,               # number of dimensions for internal feature spaces
             'nz_mid_lstm': 128,         # size of middle LSTM layers
             'n_lstm_layers': 1,         # number of LSTM layers
@@ -77,7 +78,8 @@ class SkillPriorMdl(BaseModel, ProbabilisticModel):
             'num_prior_net_layers': 6,      # number of layers of the learned prior MLP
             'nz_mid_prior': 128,            # dimensionality of internal feature spaces for prior net
             'nll_prior_train': True,        # if True, trains learned prior by maximizing NLL
-            'learned_prior_type': 'gauss',  # distribution type for learned prior, ['gauss', 'gmm', 'flow']
+            # 'learned_prior_type': 'gauss',  # distribution type for learned prior, ['gauss', 'gmm', 'flow']
+            'learned_prior_type': 'gauss_with_dinov2',  # distribution type for learned prior, ['gauss', 'gmm', 'flow']
             'n_gmm_prior_components': 5,    # number of Gaussian components for GMM learned prior
         })
 
@@ -109,7 +111,32 @@ class SkillPriorMdl(BaseModel, ProbabilisticModel):
         self.decoder_hidden_initalizer = self._build_decoder_initializer(size=self.decoder.cell.get_state_size())
 
         self.p = self._build_prior_ensemble()
+        
+        
+    def _run_idm(self, inputs):
+        curr_features = inputs['curr_features'].squeeze(1)
+        next_features = inputs['next_features'].squeeze(1)
+        
+        features = torch.cat([
+            curr_features,
+            next_features,
+        ])
+        
+        with torch.no_grad():
+            features = self.visual_encoder(features).last_hidden_state
+            
+        token_embeddings, features = features[:, 0], features[:, 1:]
 
+        curr_token_embeddings, next_token_embeddings = torch.chunk(token_embeddings, 2, dim=0)
+        curr_features, next_features = torch.chunk(features, 2, dim=0)
+        
+        pair = torch.stack([curr_features, next_features], dim=1)
+        
+        with torch.no_grad():
+            latent_action, mu, std = self.idm(pair)
+        
+        return MultivariateGaussian(mu=mu, log_sigma=std), curr_token_embeddings
+        
     def forward(self, inputs, use_learned_prior=False):
         """Forward pass of the SPIRL model.
         :arg inputs: dict with 'states', 'actions', 'images' keys from data loader
@@ -119,13 +146,21 @@ class SkillPriorMdl(BaseModel, ProbabilisticModel):
         inputs.observations = inputs.actions    # for seamless evaluation
 
         # run inference
-        output.q = self._run_inference(inputs)
+        # output.q = self._run_inference(inputs)
+        
+        output.q, curr_cls_token = self._run_idm(inputs)
 
+        
+        
         # compute (fixed) prior
         output.p = get_fixed_prior(output.q)
 
         # infer learned skill prior
-        output.q_hat = self.compute_learned_prior(self._learned_prior_input(inputs))
+        # output.q_hat = self.compute_learned_prior(self._learned_prior_input(inputs))
+        
+        output.q_hat = self.compute_learned_prior_with_rgb(self._learned_prior_input(inputs), curr_cls_token)
+        
+        
         if use_learned_prior:
             output.p = output.q_hat     # use output of learned skill prior for sampling
 
@@ -267,6 +302,9 @@ class SkillPriorMdl(BaseModel, ProbabilisticModel):
         elif self._hp.learned_prior_type == 'flow':
             return ConditionedFlowModel(self._hp, input_dim=self.prior_input_size, output_dim=self._hp.nz_vae,
                                         n_flow_layers=self._hp.num_prior_net_layers)
+        elif self._hp.learned_prior_type == 'gauss_with_dinov2':
+            return Predictor(self._hp, input_size=self.prior_input_size + 384, output_size=self._hp.nz_vae * 2,
+                             num_layers=self._hp.num_prior_net_layers, mid_size=self._hp.nz_mid_prior)
         else:
             return Predictor(self._hp, input_size=self.prior_input_size, output_size=self._hp.nz_vae * 2,
                              num_layers=self._hp.num_prior_net_layers, mid_size=self._hp.nz_mid_prior)
@@ -276,7 +314,18 @@ class SkillPriorMdl(BaseModel, ProbabilisticModel):
         if self._hp.cond_decode:
             inf_input = torch.cat((inf_input, self._learned_prior_input(inputs)[:, None]
                                         .repeat(1, inf_input.shape[1], 1)), dim=-1)
+        
         return MultivariateGaussian(self.q(inf_input)[:, -1])
+
+    def compute_learned_prior_with_rgb(self, curr_state, curr_cls_token):
+        
+        
+        inputs = torch.cat([curr_state, curr_cls_token], dim=-1)
+        
+        prior_results = [self._compute_learned_prior(self.p[0], inputs)]
+
+        return type(prior_results[0]).cat(*prior_results, dim=0)
+        
 
     def compute_learned_prior(self, inputs, first_only=False):
         """Splits batch into separate batches for prior ensemble, optionally runs first or avg prior on whole batch.

@@ -13,7 +13,8 @@ configuration = {
     'model': ClSPiRLMdl,
     'logger': Logger,
     'data_dir': '.',
-    'epoch_cycles_train': 50,
+    # 'epoch_cycles_train': 50,
+    'epoch_cycles_train': 10,
     'num_epochs': 100,
     'evaluator': TopOfNSequenceEvaluator,
     'top_of_n_eval': 100,
@@ -24,7 +25,7 @@ configuration = AttrDict(configuration)
 model_config = AttrDict(
     state_dim=data_spec.state_dim,
     action_dim=data_spec.n_actions,
-    n_rollout_steps=10,
+    n_rollout_steps=20,
     kl_div_weight=5e-4,
     nz_enc=128,
     nz_mid=128,
